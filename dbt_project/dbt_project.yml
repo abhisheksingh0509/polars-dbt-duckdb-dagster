@@ -1,0 +1,40 @@
+# dbt project metadata. dbt reads this from the working directory when you run
+# `dbt run`, `dbt build`, etc.
+
+name: 'f1_lakehouse'
+version: '1.0.0'
+config-version: 2
+
+# Which profile in profiles.yml to use (selects database connection + plugins)
+profile: 'f1_lakehouse'
+
+# Default directory layout. dbt looks here for SQL, tests, seeds, etc.
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+# Where dbt writes compiled SQL, run results, and the manifest. Gitignored.
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Default materialization config, applied to models by folder.
+# Models in models/staging/ → write Parquet to data/staging/<model_name>/
+# Models in models/marts/   → write Parquet to data/marts/<model_name>/
+#
+# Individual models can override these with their own {{ config(...) }} block,
+# e.g. to add partition_by, change materialization to view/table, etc.
+models:
+  f1_lakehouse:
+    staging:
+      +materialized: external
+      +format: parquet
+      # `location` needs `{{ this.name }}` which isn't available at parse time when set
+      # here at project level. Each model sets its own `location` in its config() block.
+    marts:
+      +materialized: external
+      +format: parquet

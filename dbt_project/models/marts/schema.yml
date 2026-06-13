@@ -1,0 +1,71 @@
+version: 2
+
+# schema.yml is dbt's home for two things at once:
+#   1. Model & column documentation (rendered by `dbt docs serve`)
+#   2. Tests (run automatically when invoked via `dbt build`)
+# Tests defined here become Dagster asset checks when dagster-dbt picks up this model.
+
+models:
+  - name: mart_country_race_summary
+    description: |
+      F1 races aggregated by country. Grain: one row per country across all seasons
+      loaded into the lakehouse.
+
+      Use for: geographic analysis, sponsorship targeting, calendar planning.
+    columns:
+      - name: country
+        description: "Country hosting the race(s)."
+        tests:
+          - unique     # one row per country = country must be unique
+          - not_null
+      - name: race_count
+        description: "Number of races held in this country across all seasons."
+        tests:
+          - not_null
+      - name: circuits
+        description: "Distinct circuit names in this country, comma-separated."
+      - name: first_race_date
+        description: "Earliest race date for this country."
+      - name: latest_race_date
+        description: "Most recent race date for this country."
+      - name: centroid_lat
+        description: "Mean latitude of circuits in this country (rough country centroid)."
+      - name: centroid_long
+        description: "Mean longitude of circuits in this country."
+
+  - name: mart_driver_standings
+    description: |
+      Championship-style summary per driver: total points, wins, podiums, DNFs,
+      pole positions, and average finishing position.
+
+      Grain: one row per driver.
+    columns:
+      - name: driver_id
+        description: "Stable driver identifier from Ergast/Jolpica (e.g. 'max_verstappen')."
+        tests:
+          - unique
+          - not_null
+      - name: driver_name
+        description: "Driver's full name (givenName + familyName)."
+      - name: driver_code
+        description: "Three-letter racing code (e.g. VER, HAM, LEC)."
+      - name: nationality
+        description: "Driver's nationality."
+      - name: primary_constructor
+        description: "The team the driver raced for most often this season."
+      - name: total_points
+        description: "Sum of championship points across all races."
+        tests:
+          - not_null
+      - name: races_entered
+        description: "Number of races the driver appeared in (any finishing status)."
+      - name: wins
+        description: "Number of P1 finishes."
+      - name: podiums
+        description: "Number of top-3 finishes."
+      - name: points_finishes
+        description: "Number of top-10 finishes (points-scoring positions)."
+      - name: dnfs
+        description: "Number of races where the driver did not finish (retired, crashed, etc.)."
+      - name: pole_positions
+        description: "Number of races started from grid position 1."

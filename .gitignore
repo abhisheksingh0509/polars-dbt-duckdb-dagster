@@ -1,0 +1,43 @@
+# ── Python ─────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# uv — NOTE: uv.lock IS committed (deterministic builds across machines)
+
+# ── Dagster ────────────────────────────────────────────────────────────────────
+.dagster_home/*
+.tmp_dagster_home_*/*
+
+# ── dbt ────────────────────────────────────────────────────────────────────────
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/logs/
+logs/*
+
+# ── The lakehouse itself (regenerable by re-materializing) ─────────────────────
+data/
+
+# ── Node / Evidence (defense in depth — evidence/.gitignore also covers these) ─
+evidence/node_modules/
+evidence/.evidence/
+evidence/.svelte-kit/
+evidence/build/
+evidence/npm-debug.log*
+
+# ── Jupyter ────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+
+# ── IDE / OS ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# ── Claude Code (project-level settings.json IS committed; .local is per-user) ─
+.claude/settings.local.json

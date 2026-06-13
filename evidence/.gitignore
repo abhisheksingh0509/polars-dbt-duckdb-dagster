@@ -1,0 +1,9 @@
+# Node ecosystem
+node_modules/
+
+# Evidence build artifacts
+build/
+.evidence/
+
+# Logs
+npm-debug.log*

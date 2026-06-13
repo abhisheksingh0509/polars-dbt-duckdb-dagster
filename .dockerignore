@@ -1,0 +1,38 @@
+# Don't copy these into the Docker build context — keeps builds fast and images slim
+
+# Local venv (Docker builds its own)
+.venv/
+
+# Data and Dagster state — bind-mounted at runtime, not baked into image
+data/
+.dagster_home/
+
+# Git / CI metadata
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Docs (image doesn't need them; saves a few MB)
+*.md
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# dbt build artifacts (regenerated inside container)
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/logs/
+
+# Claude Code
+.claude/
+CLAUDE.md

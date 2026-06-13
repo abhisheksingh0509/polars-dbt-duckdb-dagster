@@ -1,0 +1,42 @@
+[project]
+name = "f1-lakehouse"
+version = "0.1.0"
+description = "Single-node Formula 1 data lakehouse: Polars + DuckDB + dbt + Dagster + Delta Lake"
+requires-python = ">=3.12,<3.13"
+readme = "README.md"
+
+dependencies = [
+    # Orchestration
+    "dagster>=1.8",
+    "dagster-webserver>=1.8",
+    "dagster-dbt>=0.24",
+    "dagster-polars[deltalake]>=0.24",
+    # Transform
+    "dbt-duckdb>=1.8",
+    # Compute & storage
+    "duckdb>=1.0",
+    "polars>=1.0",
+    "deltalake>=0.18",
+    # Extract — HTTP client for Ergast API
+    "httpx>=0.27",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.5",
+    "pytest>=8.0",
+    # JupyterLab — interactive notebooks for exploring the lakehouse during development.
+    # Launches with: `uv run jupyter lab` (from project root)
+    "jupyterlab>=4.0",
+]
+
+[tool.uv]
+# This is an application (not a library) — uv won't try to publish it
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]

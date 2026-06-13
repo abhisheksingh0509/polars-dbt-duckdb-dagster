@@ -1,0 +1,14 @@
+name: lakehouse
+type: duckdb
+options:
+  # Path is resolved RELATIVE TO THIS connection.yaml file (not the evidence/
+  # project root, as you might expect). So from evidence/sources/lakehouse/,
+  # three `../` get us to project_root/, then data/lakehouse.duckdb is the
+  # dbt-managed view catalog that exposes our marts as queryable relations.
+  filename: ../../../data/lakehouse.duckdb
+
+  # Open the file in READ_ONLY mode. Without this Evidence takes a write lock
+  # that blocks dbt runs (Dagster materializations fail with SIGBUS / lock errors
+  # in macOS Docker when both processes have the file open writable). Read-only
+  # uses a shared lock — Evidence + dbt coexist cleanly.
+  access_mode: READ_ONLY

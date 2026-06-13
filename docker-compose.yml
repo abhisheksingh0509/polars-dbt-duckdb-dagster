@@ -1,0 +1,32 @@
+# docker-compose v2 doesn't need a top-level `version:` key (deprecated)
+
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: f1_lakehouse
+    ports:
+      # Dagster's web UI — open http://localhost:3000 after `docker compose up`
+      - "3000:3000"
+      # dbt docs server (only runs when you exec into the container and run `dbt docs serve`)
+      - "8080:8080"
+    volumes:
+      # The lakehouse — bind-mounted so you can browse Delta/Parquet files from your IDE
+      - ./data:/opt/dagster/app/data
+      # Dagster's instance storage — survives container restarts (run history, event log)
+      - ./.dagster_home:/opt/dagster/dagster_home
+      # Source code — bind-mounted so edits on host are picked up by Dagster's auto-reload
+      # (Without this you'd have to rebuild the image after every code change)
+      - ./pipelines:/opt/dagster/app/pipelines
+      - ./dbt_project:/opt/dagster/app/dbt_project
+    environment:
+      - DAGSTER_HOME=/opt/dagster/dagster_home
+      # Force Polars to use a consistent thread count (otherwise it grabs all host cores
+      # which can starve dbt/DuckDB running in the same process)
+      - POLARS_MAX_THREADS=4
+    # Docker's default /dev/shm is 64 MB — too small for Polars/Delta operations that
+    # mmap files. Symptom: SIGBUS (signal 7) inside f1_dbt_assets or raw_* assets.
+    # 2 GB is plenty for this single-node workload.
+    shm_size: 2gb
+    restart: unless-stopped

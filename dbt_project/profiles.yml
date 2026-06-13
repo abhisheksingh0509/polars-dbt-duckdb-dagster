@@ -1,0 +1,36 @@
+# dbt connection profile. By convention this lives at ~/.dbt/profiles.yml, but
+# dbt also checks the project directory — and we want it project-local so it's
+# reproducible across machines and committable.
+#
+# Why in-memory DuckDB (`path: ":memory:"`)?
+#   - All persistent storage lives in data/raw/ (Delta) and data/staging/+data/marts/ (Parquet).
+#   - DuckDB is only needed as a *query engine* during dbt runs; nothing to persist in DuckDB itself.
+#   - In-memory = faster startup, no leftover .duckdb file to clean up between runs.
+#
+# Why the `delta` plugin?
+#   - Lets DuckDB read the Delta tables Polars writes to data/raw/.
+#   - dbt-duckdb wraps the deltalake-rs Python library to do the actual reads.
+
+f1_lakehouse:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Persistent DuckDB file (NOT ":memory:"). Why persistence matters here:
+      # dbt's external materialization writes Parquet AND creates a DuckDB VIEW
+      # over it. With :memory:, that view only exists for the current dbt run —
+      # so a selective build like `dbt build --select mart_x` fails because the
+      # ref()-resolved view for upstream `stg_y` was never recreated.
+      # Persisting the file means views survive across invocations, and partial
+      # materializations from Dagster work after one initial full build.
+      # This file is engine state, not lakehouse data — gitignored via data/.
+      path: "{{ env_var('LAKEHOUSE_DATA_ROOT', '../data') }}/lakehouse.duckdb"
+
+      # threads=1: dbt-duckdb's delta plugin can't safely register multiple Delta
+      # sources concurrently — each source thread tries to CREATE SCHEMA "raw" and
+      # they collide in DuckDB's catalog (TransactionContext "write-write conflict"
+      # on the schema name). Serializing avoids that. Parallelism wasn't gaining
+      # anything anyway — individual models materialize in ~0.5s each.
+      threads: 1
+      plugins:
+        - module: delta

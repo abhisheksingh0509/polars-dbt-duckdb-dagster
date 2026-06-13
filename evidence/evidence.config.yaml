@@ -1,0 +1,15 @@
+# Evidence project config. The plugins section declares which connectors and
+# UI components Evidence should load — must match what's installed via npm.
+# We only install @evidence-dev/duckdb (not the 10+ connectors in the default
+# template), so only DuckDB is listed here.
+
+appearance:
+  default: system
+  switcher: true
+
+plugins:
+  components:
+    "@evidence-dev/core-components": {}
+
+  datasources:
+    "@evidence-dev/duckdb": {}
