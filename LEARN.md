@@ -8,7 +8,9 @@ The README is the "how do I run it" doc. This is the "what is going on and how d
 
 ## Part 1 — The 60-second elevator pitch
 
-You built a **single-node Data Lakehouse** on your laptop. It pulls F1 racing data from a public API, lands it as transactional **Delta** files (bronze), cleans and transforms it through **dbt** into **Parquet** files (silver + gold), runs the whole thing as a unified DAG in **Dagster**, and visualizes the gold layer as **Evidence** dashboards.
+You built a **single-node Data Lakehouse stack** on your laptop. A source lands as transactional **Delta** files (bronze), gets cleaned and transformed through **dbt** into **Parquet** files (silver + gold), runs the whole way as a unified DAG in **Dagster**, and surfaces as **Evidence** dashboards.
+
+The key idea: **the stack is the product, the data is the payload.** The machinery is dataset-agnostic — you plug in a dataset (its source + its KPIs) and the same bronze→silver→gold pipeline runs it. The dataset shipped here is **Formula 1** racing data (from a public API), and it's the running example throughout this doc — but nothing in the engine knows or cares that it's F1. (How that split works is **Step 8** below; adding a second dataset is the **homework** stretch goal.)
 
 No Spark. No cluster. No cloud. Everything runs on your Mac. Data lives as plain files you can open with any tool.
 
