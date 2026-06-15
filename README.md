@@ -1,6 +1,8 @@
-# Local Data Lakehouse: F1 Edition
+# Local Data Lakehouse
 
-A single-node, vectorized data pipeline that ingests Formula 1 racing data and transforms it through a bronze → silver → gold lakehouse — **without Spark or any cluster**.
+A single-node, vectorized **data lakehouse stack** — bronze → silver → gold — that runs entirely on your laptop, **without Spark or any cluster**.
+
+The pipeline machinery (extract → Delta bronze → dbt/DuckDB silver + gold → Evidence dashboards) is **dataset-agnostic**: the stack is the product, and a dataset is just the payload you plug into it. **Formula 1** racing data (via the public Jolpica API) is the worked example shipped here — see [Datasets](#datasets--the-stack-is-the-product-data-is-the-payload) for how it slots in and how to add your own.
 
 This is a **learning project** for the modern open-source data stack. If you have a Spark background, this README maps every new tool back to a Spark concept you already know.
 
@@ -12,10 +14,10 @@ This is a **learning project** for the modern open-source data stack. If you hav
 
 ```
                     ┌──────────────────────────────────────────────────┐
-                    │  Jolpica API (Formula 1 racing data, public REST)│
-                    │  drop-in mirror of the deprecated Ergast API     │
+                    │  A data source (REST API, files, S3, a DB, ...)  │
+                    │  example shipped here: Jolpica F1 API (REST)     │
                     └────────────────────┬─────────────────────────────┘
-                                         │  HTTP GET
+                                         │  extract (e.g. HTTP GET)
                                          ▼
    ┌──────────────────────────────────────────────────────────────────┐
    │                         Dagster Orchestrator                       │
@@ -28,7 +30,7 @@ This is a **learning project** for the modern open-source data stack. If you hav
    │   └──────┬───────┘         └──────┬──────┘        └──────┬──────┘ │
    └──────────┼─────────────────────── ┼────────────────────── ┼───────┘
               ▼                        ▼                       ▼
-         data/raw/                data/staging/            data/marts/
+       data/raw/<dataset>/    data/staging/<dataset>/   data/marts/<dataset>/
        (Delta Lake)              (Parquet files)         (Parquet files)
         — bronze —                 — silver —              — gold —
 ```
@@ -49,6 +51,23 @@ Everything runs **in one Docker container on your laptop**. No JVM, no cluster, 
 | **Parquet** | Storage format for staging + marts | The same columnar file format Spark uses. Universally readable. (We use single files per model; partitioning is a future enhancement once we have multiple seasons.) |
 | **uv** | Python package manager | A faster, deterministic `pip` + `poetry` replacement. Written in Rust by Astral. Resolves dependencies in seconds instead of minutes. |
 | **Docker Compose** | Local container orchestration | Containerizes the whole pipeline so it runs identically on Mac, Windows (WSL), or Linux. |
+
+---
+
+## Datasets — the stack is the product, data is the payload
+
+The lakehouse machinery is deliberately split from the data that flows through it:
+
+- **The stack** (`pipelines/stack/` plus the dbt + Evidence scaffolding) is the reusable engine — extract, build bronze assets, wire dbt in, render dashboards. It has **no knowledge of any particular dataset**.
+- **A dataset** is a self-contained bundle: `pipelines/datasets/<name>/` (where to fetch raw data + how to shape it), `dbt_project/models/<name>/` (clean + the KPIs), and `evidence/pages/<name>/` (the dashboards).
+
+Everything on disk is namespaced by dataset (`data/raw/<dataset>/`, `data/staging/<dataset>/`, `data/marts/<dataset>/`), so multiple datasets coexist without colliding.
+
+| Dataset | Source | What it answers |
+|---|---|---|
+| **`f1`** | Jolpica F1 API (public REST, 2024 season) | Driver championship standings + race geography |
+
+`f1` is the only dataset shipped today, and it doubles as the **worked example** throughout the rest of this README. **Adding a dataset is additive — the engine is untouched:** declare a `SourceSpec`, add `models/<name>/`, add `pages/<name>/`. The step-by-step (including the file-vs-API extractor choice) is in the **"Stack vs Dataset"** section of [CLAUDE.md](CLAUDE.md), and the homework in [LEARN.md](LEARN.md) walks you through it.
 
 ---
 
@@ -175,8 +194,11 @@ In the Dagster UI:
 From the command line:
 
 ```bash
-# Run one Polars asset
-uv run dagster asset materialize -m pipelines.definitions --select raw_races
+# Run one Polars asset (bronze assets are namespaced as <dataset>/<table>)
+uv run dagster asset materialize -m pipelines.definitions --select "f1/raw_races"
+
+# ...or a whole dataset's bronze layer at once
+uv run dagster asset materialize -m pipelines.definitions --select "group:f1_raw"
 
 # Run a full dbt build (uses the persistent DuckDB file)
 cd dbt_project && uv run dbt build --profiles-dir .
@@ -255,12 +277,13 @@ npm install --force      # first time only — see Troubleshooting #6
 npm run dev              # opens http://localhost:3001
 ```
 
-Three starter dashboards are pre-wired against the marts:
-- `/` — Overview (race count, driver count, top 5 standings)
-- `/drivers` — Full championship standings + charts
-- `/countries` — Geography + map of host countries
+Pages are namespaced by dataset. A top-level hub links to each dataset; F1's dashboards are pre-wired against its marts:
+- `/` — Hub (links to each dataset)
+- `/f1` — F1 overview (race count, driver count, top 5 standings)
+- `/f1/drivers` — Full championship standings + charts
+- `/f1/countries` — Geography + map of host countries
 
-Edit any `.md` file in `evidence/pages/` and the dev server hot-reloads. Add a new file → it auto-appears as a new route.
+Edit any `.md` file in `evidence/pages/` and the dev server hot-reloads. Add a new file → it auto-appears as a new route (a new dataset gets its own `pages/<dataset>/` folder).
 
 ---
 
