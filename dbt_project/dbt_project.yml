@@ -23,18 +23,18 @@ clean-targets:
   - "dbt_packages"
 
 # Default materialization config, applied to models by folder.
-# Models in models/staging/ → write Parquet to data/staging/<model_name>/
-# Models in models/marts/   → write Parquet to data/marts/<model_name>/
+# Models are namespaced by dataset: models/<dataset>/staging/ and models/<dataset>/marts/.
+# Each writes Parquet to data/staging/<dataset>/ and data/marts/<dataset>/ (the per-dataset
+# `location` is set in each model's config() block — `{{ this.name }}` isn't available at
+# parse time when set here at project level).
 #
-# Individual models can override these with their own {{ config(...) }} block,
-# e.g. to add partition_by, change materialization to view/table, etc.
+# To add a dataset, add a models/<dataset>/ block mirroring f1 below.
 models:
   f1_lakehouse:
-    staging:
-      +materialized: external
-      +format: parquet
-      # `location` needs `{{ this.name }}` which isn't available at parse time when set
-      # here at project level. Each model sets its own `location` in its config() block.
-    marts:
-      +materialized: external
-      +format: parquet
+    f1:
+      staging:
+        +materialized: external
+        +format: parquet
+      marts:
+        +materialized: external
+        +format: parquet

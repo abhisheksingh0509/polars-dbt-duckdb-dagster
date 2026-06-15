@@ -1,6 +1,6 @@
 -- Mart: F1 races aggregated by country.
--- Reads:  data/staging/stg_races.parquet (via ref('stg_races') below)
--- Writes: data/marts/mart_country_race_summary.parquet
+-- Reads:  data/staging/f1/stg_races.parquet (via ref('stg_races') below)
+-- Writes: data/marts/f1/mart_country_race_summary.parquet
 --
 -- Business question: "Where does F1 visit most often, and what does the calendar look
 -- like geographically?" Useful for sponsorship targeting, regional content planning,
@@ -9,9 +9,7 @@
 -- Grain change: stg_races has one row per race; this mart has one row per country —
 -- that grain shift is what makes it a "mart" rather than another staging model.
 
-{{ config(
-    location = env_var('LAKEHOUSE_DATA_ROOT', '../data') ~ '/marts/' ~ this.name ~ '.parquet'
-) }}
+{{ config(location = dataset_location('marts')) }}
 
 SELECT
     circuit_country                          AS country,

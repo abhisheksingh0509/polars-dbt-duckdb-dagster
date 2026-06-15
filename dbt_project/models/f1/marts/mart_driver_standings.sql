@@ -1,13 +1,11 @@
 -- Mart: driver championship standings.
 -- Reads:  stg_results + stg_drivers
--- Writes: data/marts/mart_driver_standings.parquet
+-- Writes: data/marts/f1/mart_driver_standings.parquet
 --
 -- Business question: "Who's winning the championship — and how do they get there?"
 -- Grain: one row per driver. Aggregates across all races loaded in stg_results.
 
-{{ config(
-    location = env_var('LAKEHOUSE_DATA_ROOT', '../data') ~ '/marts/' ~ this.name ~ '.parquet'
-) }}
+{{ config(location = dataset_location('marts')) }}
 
 WITH results_with_driver_info AS (
     SELECT

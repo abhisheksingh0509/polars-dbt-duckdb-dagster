@@ -1,6 +1,6 @@
 -- Staging model: clean and conform raw_drivers.
--- Reads:  data/raw/raw_drivers.delta  (Delta, via dbt-duckdb delta plugin)
--- Writes: data/staging/stg_drivers.parquet
+-- Reads:  data/raw/f1/raw_drivers.delta  (Delta, via dbt-duckdb delta plugin)
+-- Writes: data/staging/f1/stg_drivers.parquet
 --
 -- What this model does:
 --   1. Rename camelCase JSON fields → snake_case
@@ -8,9 +8,7 @@
 --   3. Cast permanent_number (sometimes empty) → nullable INTEGER
 --   4. Add a convenience full_name column
 
-{{ config(
-    location = env_var('LAKEHOUSE_DATA_ROOT', '../data') ~ '/staging/' ~ this.name ~ '.parquet'
-) }}
+{{ config(location = dataset_location('staging')) }}
 
 SELECT
     "driverId"                                       AS driver_id,
@@ -22,4 +20,4 @@ SELECT
     CAST("dateOfBirth" AS DATE)                      AS date_of_birth,
     nationality                                      AS nationality,
     url                                              AS driver_url
-FROM {{ source('raw', 'raw_drivers') }}
+FROM {{ source('f1', 'raw_drivers') }}
