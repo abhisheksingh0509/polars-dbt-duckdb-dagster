@@ -1,6 +1,6 @@
 -- Staging model: clean and conform raw_races.
--- Reads:  data/raw/raw_races (Delta, via dbt-duckdb delta plugin)
--- Writes: data/staging/stg_races.parquet
+-- Reads:  data/raw/f1/raw_races.delta (Delta, via dbt-duckdb delta plugin)
+-- Writes: data/staging/f1/stg_races.parquet
 --
 -- What this model does:
 --   1. Flatten the nested Circuit struct into top-level columns
@@ -8,9 +8,7 @@
 --   3. Cast the date string to a real DATE
 --   4. Rename camelCase JSON fields to snake_case (downstream-friendly)
 
-{{ config(
-    location = env_var('LAKEHOUSE_DATA_ROOT', '../data') ~ '/staging/' ~ this.name ~ '.parquet'
-) }}
+{{ config(location = dataset_location('staging')) }}
 
 SELECT
     -- Strings from the API → typed columns
@@ -31,4 +29,4 @@ SELECT
     CAST(Circuit['Location']['lat'] AS DOUBLE)  AS circuit_lat,
     CAST(Circuit['Location']['long'] AS DOUBLE) AS circuit_long
 
-FROM {{ source('raw', 'raw_races') }}
+FROM {{ source('f1', 'raw_races') }}

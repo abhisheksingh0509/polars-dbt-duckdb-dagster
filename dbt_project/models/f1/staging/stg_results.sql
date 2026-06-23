@@ -1,6 +1,6 @@
 -- Staging model: clean and conform raw_results.
--- Reads:  data/raw/raw_results.delta  (Delta, via dbt-duckdb delta plugin)
--- Writes: data/staging/stg_results.parquet
+-- Reads:  data/raw/f1/raw_results.delta  (Delta, via dbt-duckdb delta plugin)
+-- Writes: data/staging/f1/stg_results.parquet
 --
 -- What this model does:
 --   1. Cast numeric fields (season, round, points, grid, laps)
@@ -10,9 +10,7 @@
 --   4. Pull optional Time.millis and FastestLap fields via TRY_CAST so missing
 --      values (DNFs, mid-pack finishes) become NULL instead of erroring
 
-{{ config(
-    location = env_var('LAKEHOUSE_DATA_ROOT', '../data') ~ '/staging/' ~ this.name ~ '.parquet'
-) }}
+{{ config(location = dataset_location('staging')) }}
 
 SELECT
     CAST(season AS INTEGER)                   AS season,
@@ -39,4 +37,4 @@ SELECT
     -- Fastest-lap metadata (optional — not always recorded)
     TRY_CAST(FastestLap['rank'] AS INTEGER)   AS fastest_lap_rank,
     TRY_CAST(FastestLap['lap'] AS INTEGER)    AS fastest_lap_number
-FROM {{ source('raw', 'raw_results') }}
+FROM {{ source('f1', 'raw_results') }}

@@ -1,42 +1,11 @@
 ---
-title: F1 2024 Lakehouse
+title: Lakehouse
 ---
 
-A code-first BI tour of the local lakehouse. Data flows: **Jolpica API → Polars / Delta (bronze) → dbt + DuckDB (silver, gold) → here**.
+A code-first BI tour of the local lakehouse. The same stack — **source → Polars / Delta (bronze) → dbt + DuckDB (silver, gold) → here** — powers each dataset below.
 
-## At a glance
+## Datasets
 
-```sql totals
-SELECT
-  (SELECT COUNT(*) FROM lakehouse.mart_country_race_summary) AS countries,
-  (SELECT SUM(race_count) FROM lakehouse.mart_country_race_summary) AS races,
-  (SELECT COUNT(*) FROM lakehouse.mart_driver_standings) AS drivers,
-  (SELECT SUM(points) FROM lakehouse.mart_driver_standings) AS total_points
-```
+- [**Formula 1 (2024)**](/f1) — races, drivers, championship standings, and geography
 
-<BigValue data={totals} value=countries title="Countries visited" />
-<BigValue data={totals} value=races title="Races run" />
-<BigValue data={totals} value=drivers title="Drivers" />
-<BigValue data={totals} value=total_points title="Total points awarded" />
-
-## Top of the championship
-
-```sql top5
-SELECT
-  driver_name,
-  driver_code,
-  primary_constructor AS team,
-  total_points,
-  wins,
-  podiums
-FROM lakehouse.mart_driver_standings
-ORDER BY total_points DESC
-LIMIT 5
-```
-
-<DataTable data={top5} />
-
-## Navigate
-
-- [**Driver standings**](/drivers) — full table, points distribution, wins vs podiums
-- [**Geography**](/countries) — where F1 raced in 2024
+_Adding a dataset adds a link here and a `pages/<dataset>/` folder — the stack underneath is unchanged._

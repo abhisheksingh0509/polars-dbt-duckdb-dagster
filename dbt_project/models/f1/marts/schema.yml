@@ -69,3 +69,30 @@ models:
         description: "Number of races where the driver did not finish (retired, crashed, etc.)."
       - name: pole_positions
         description: "Number of races started from grid position 1."
+
+
+  - name: mart_constructor_standings
+    description: |
+      Championship-style summary per constructor: total points, wins, podiums, DNFs,
+      pole positions, and average finishing position.
+
+      Grain: one row per constructor.
+    columns:
+      - name: constructor_name
+        description: "Name of the constructor."
+      - name: total_points
+        description: "Sum of championship points across all races."
+      - name: races_entered
+        description: "Number of races the constructor appeared in (any finishing status)."
+      - name: wins
+        description: "Number of P1 finishes."
+      - name: podiums
+        description: "Number of top-3 finishes."
+      - name: points_finishes
+        description: "Number of top-10 finishes (points-scoring positions)."
+      - name: dnfs
+        description: "Number of races where the constructor did not finish (retired, crashed, etc.)."
+      - name: pole_positions
+        description: "Number of races started from grid position 1."
+      - name: avg_finishing_position
+        description: "Average finishing position across classified finishes (DNFs excluded)."

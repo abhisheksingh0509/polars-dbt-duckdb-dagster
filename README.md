@@ -1,6 +1,8 @@
-# Local Data Lakehouse: F1 Edition
+# Local Data Lakehouse
 
-A single-node, vectorized data pipeline that ingests Formula 1 racing data and transforms it through a bronze → silver → gold lakehouse — **without Spark or any cluster**.
+A single-node, vectorized **data lakehouse stack** — bronze → silver → gold — that runs entirely on your laptop, **without Spark or any cluster**.
+
+The pipeline machinery (extract → Delta bronze → dbt/DuckDB silver + gold → Evidence dashboards) is **dataset-agnostic**: the stack is the product, and a dataset is just the payload you plug into it. **Formula 1** racing data (via the public Jolpica API) is the worked example shipped here — see [Datasets](#datasets--the-stack-is-the-product-data-is-the-payload) for how it slots in and how to add your own.
 
 This is a **learning project** for the modern open-source data stack. If you have a Spark background, this README maps every new tool back to a Spark concept you already know.
 
@@ -12,10 +14,10 @@ This is a **learning project** for the modern open-source data stack. If you hav
 
 ```
                     ┌──────────────────────────────────────────────────┐
-                    │  Jolpica API (Formula 1 racing data, public REST)│
-                    │  drop-in mirror of the deprecated Ergast API     │
+                    │  A data source (REST API, files, S3, a DB, ...)  │
+                    │  example shipped here: Jolpica F1 API (REST)     │
                     └────────────────────┬─────────────────────────────┘
-                                         │  HTTP GET
+                                         │  extract (e.g. HTTP GET)
                                          ▼
    ┌──────────────────────────────────────────────────────────────────┐
    │                         Dagster Orchestrator                       │
@@ -28,7 +30,7 @@ This is a **learning project** for the modern open-source data stack. If you hav
    │   └──────┬───────┘         └──────┬──────┘        └──────┬──────┘ │
    └──────────┼─────────────────────── ┼────────────────────── ┼───────┘
               ▼                        ▼                       ▼
-         data/raw/                data/staging/            data/marts/
+       data/raw/<dataset>/    data/staging/<dataset>/   data/marts/<dataset>/
        (Delta Lake)              (Parquet files)         (Parquet files)
         — bronze —                 — silver —              — gold —
 ```
@@ -52,6 +54,23 @@ Everything runs **in one Docker container on your laptop**. No JVM, no cluster, 
 
 ---
 
+## Datasets — the stack is the product, data is the payload
+
+The lakehouse machinery is deliberately split from the data that flows through it:
+
+- **The stack** (`pipelines/stack/` plus the dbt + Evidence scaffolding) is the reusable engine — extract, build bronze assets, wire dbt in, render dashboards. It has **no knowledge of any particular dataset**.
+- **A dataset** is a self-contained bundle: `pipelines/datasets/<name>/` (where to fetch raw data + how to shape it), `dbt_project/models/<name>/` (clean + the KPIs), and `evidence/pages/<name>/` (the dashboards).
+
+Everything on disk is namespaced by dataset (`data/raw/<dataset>/`, `data/staging/<dataset>/`, `data/marts/<dataset>/`), so multiple datasets coexist without colliding.
+
+| Dataset | Source | What it answers |
+|---|---|---|
+| **`f1`** | Jolpica F1 API (public REST, 2024 season) | Driver championship standings + race geography |
+
+`f1` is the only dataset shipped today, and it doubles as the **worked example** throughout the rest of this README. **Adding a dataset is additive — the engine is untouched:** declare a `SourceSpec`, add `models/<name>/`, add `pages/<name>/`. The step-by-step (including the file-vs-API extractor choice) is in the **"Stack vs Dataset"** section of [CLAUDE.md](CLAUDE.md), and the homework in [LEARN.md](LEARN.md) walks you through it.
+
+---
+
 ## The medallion architecture (bronze → silver → gold)
 
 This is a standard lakehouse pattern. Each layer has a clear purpose:
@@ -62,16 +81,16 @@ This is a standard lakehouse pattern. Each layer has a clear purpose:
 - **Writer:** Polars, via Dagster's `PolarsDeltaIOManager`.
 - **Why Delta here:** You want ACID guarantees on ingest. If a Polars asset fails halfway, you don't end up with a partially-written table. Delta also lets you query *as of a previous version*, which is gold for debugging.
 
-### Silver: `data/staging/` (single Parquet files)
-- **What:** Cleaned, conformed, typed. Joinable. One file per source entity: `stg_races.parquet`, `stg_drivers.parquet`, `stg_results.parquet`.
-- **Format:** Parquet, one file per model.
+### Silver: `data/staging/<dataset>/` (single Parquet files)
+- **What:** Cleaned, conformed, typed. Joinable. One file per source entity: `f1/stg_races.parquet`, `f1/stg_drivers.parquet`, `f1/stg_results.parquet`.
+- **Format:** Parquet, one file per model, namespaced by dataset.
 - **Writer:** dbt models using dbt-duckdb's `external` materialization.
 - **Why Parquet here:** This is the canonical dbt-duckdb path. Writing Delta from dbt requires custom Python plumbing for limited gain. Plain Parquet is universally readable and works perfectly at this volume.
-- **Why no partitioning yet:** We only have one season — Hive partitioning would be premature. When we add multiple seasons, we'd switch to `data/staging/stg_races/season=YYYY/` layout.
+- **Why no partitioning yet:** We only have one season — Hive partitioning would be premature. When we add multiple seasons, we'd switch to `data/staging/f1/stg_races/season=YYYY/` layout.
 
-### Gold: `data/marts/` (single Parquet files)
+### Gold: `data/marts/<dataset>/` (single Parquet files)
 - **What:** Business-facing answers. Wide tables ready for BI / analysis.
-- **Files:** `mart_country_race_summary.parquet` (one row per country), `mart_driver_standings.parquet` (one row per driver — points, wins, podiums, DNFs).
+- **Files:** `f1/mart_country_race_summary.parquet` (one row per country), `f1/mart_driver_standings.parquet` (one row per driver — points, wins, podiums, DNFs).
 - **Format:** Same as silver — single Parquet files.
 - **Writer:** dbt mart models built on top of staging via `{{ ref('stg_xxx') }}`.
 
@@ -81,21 +100,21 @@ This is a standard lakehouse pattern. Each layer has a clear purpose:
 
 ## Data flow, step by step
 
-1. **Dagster materializes a Polars asset** (e.g., `raw_races`).
-   - The asset calls the **Jolpica API**, builds a Polars DataFrame, returns it.
-   - The `PolarsDeltaIOManager` automatically writes it to `data/raw/raw_races.delta/` as a Delta table. No file-handling boilerplate in your code. (The `.delta` suffix is added by the IO manager as a format marker.)
+1. **Dagster materializes a Polars asset** (e.g., `f1/raw_races`).
+   - The asset (built by the stack engine from a `SourceSpec` in `pipelines/datasets/f1/sources.py`) calls the **Jolpica API**, builds a Polars DataFrame, returns it.
+   - The `PolarsDeltaIOManager` automatically writes it to `data/raw/f1/raw_races.delta/` as a Delta table — the `f1/` namespace comes from the asset key prefix, the `.delta` suffix is added by the IO manager as a format marker. No file-handling boilerplate in your code.
 
 2. **dbt sources read those Delta tables.**
-   - In `dbt_project/models/staging/sources.yml`, each Delta directory is declared as a source with `plugin: delta` and an explicit `delta_table_path`.
+   - In `dbt_project/models/f1/staging/sources.yml`, each Delta directory is declared as a source (under the `f1` source group) with `plugin: delta` and an explicit `delta_table_path`.
    - The `dbt-duckdb` `delta` plugin makes DuckDB read these natively (via the deltalake-rs Python library).
 
 3. **dbt staging models clean and conform.**
-   - Standard `SELECT ... FROM {{ source('raw', 'raw_races') }}` — pure SQL.
-   - Materialized as `external` Parquet at `data/staging/stg_races.parquet` (single file per model).
+   - Standard `SELECT ... FROM {{ source('f1', 'raw_races') }}` — pure SQL.
+   - Materialized as `external` Parquet at `data/staging/f1/stg_races.parquet` (single file per model).
 
 4. **dbt mart models answer business questions.**
    - Join staging tables, aggregate, use window functions.
-   - Materialized as `external` Parquet at `data/marts/<mart>.parquet`.
+   - Materialized as `external` Parquet at `data/marts/f1/<mart>.parquet`.
 
 5. **Dagster's `dagster-dbt` integration imports the dbt DAG.**
    - Every dbt model becomes a Dagster asset.
@@ -108,19 +127,21 @@ This is a standard lakehouse pattern. Each layer has a clear purpose:
 ```text
 project_root/
 ├── data/                        # The lakehouse — bind-mounted from container, inspectable from your IDE
-│   ├── raw/                     # Bronze: Delta tables (Polars writes — *.delta/ directories)
-│   ├── staging/                 # Silver: single Parquet files per model (dbt writes)
-│   ├── marts/                   # Gold: single Parquet files per model (dbt writes)
+│   ├── raw/<dataset>/           # Bronze: Delta tables (Polars writes — *.delta/ directories)
+│   ├── staging/<dataset>/       # Silver: single Parquet files per model (dbt writes)
+│   ├── marts/<dataset>/         # Gold: single Parquet files per model (dbt writes)
 │   └── lakehouse.duckdb         # dbt's persistent view catalog (engine state — see Troubleshooting)
 │
 ├── pipelines/                   # Dagster project — Python-side orchestration
-│   ├── assets/raw.py            # Polars extract assets + paginated HTTP helper
-│   └── definitions.py           # Wires assets + IO managers + dbt project into Dagster's Definitions
+│   ├── stack/                   # The reusable engine: extractors, SourceSpec, build_raw_assets, dbt translator
+│   ├── datasets/f1/sources.py   # The F1 payload: DATASET + SOURCES (list of SourceSpec)
+│   └── definitions.py           # Thin assembler: wires stack + datasets + IO managers + dbt into Definitions
 │
-├── dbt_project/                 # dbt project — SQL transforms
+├── dbt_project/                 # dbt project — SQL transforms (models namespaced by dataset)
 │   ├── models/
-│   │   ├── staging/             # sources.yml + stg_*.sql (clean & conform raw Delta tables)
-│   │   └── marts/               # schema.yml + mart_*.sql (business questions)
+│   │   └── f1/
+│   │       ├── staging/         # sources.yml + stg_*.sql (clean & conform raw Delta tables)
+│   │       └── marts/           # schema.yml + mart_*.sql (business questions)
 │   ├── profiles.yml             # dbt-duckdb config (persistent file, threads=1, delta plugin)
 │   └── dbt_project.yml
 │
@@ -173,8 +194,11 @@ In the Dagster UI:
 From the command line:
 
 ```bash
-# Run one Polars asset
-uv run dagster asset materialize -m pipelines.definitions --select raw_races
+# Run one Polars asset (bronze assets are namespaced as <dataset>/<table>)
+uv run dagster asset materialize -m pipelines.definitions --select "f1/raw_races"
+
+# ...or a whole dataset's bronze layer at once
+uv run dagster asset materialize -m pipelines.definitions --select "group:f1_raw"
 
 # Run a full dbt build (uses the persistent DuckDB file)
 cd dbt_project && uv run dbt build --profiles-dir .
@@ -200,7 +224,7 @@ The whole point of bind-mounting `./data` is that you can poke at the lakehouse 
 ```python
 import polars as pl
 # Note the .delta suffix — PolarsDeltaIOManager adds it as a format marker.
-df = pl.read_delta("data/raw/raw_races.delta")
+df = pl.read_delta("data/raw/f1/raw_races.delta")
 print(df.head())
 ```
 
@@ -210,7 +234,7 @@ print(df.head())
 -- DuckDB CLI: `duckdb`
 INSTALL delta;
 LOAD delta;
-SELECT * FROM delta_scan('data/raw/raw_races.delta') LIMIT 10;
+SELECT * FROM delta_scan('data/raw/f1/raw_races.delta') LIMIT 10;
 ```
 
 ### Query a staging or mart Parquet file
@@ -218,11 +242,11 @@ SELECT * FROM delta_scan('data/raw/raw_races.delta') LIMIT 10;
 ```sql
 -- Single Parquet file per model — no glob needed.
 SELECT season, COUNT(*) AS race_count
-FROM 'data/staging/stg_races.parquet'
+FROM 'data/staging/f1/stg_races.parquet'
 GROUP BY season;
 
 -- Or read a mart directly:
-SELECT * FROM 'data/marts/mart_driver_standings.parquet'
+SELECT * FROM 'data/marts/f1/mart_driver_standings.parquet'
 ORDER BY total_points DESC
 LIMIT 5;
 ```
@@ -253,12 +277,13 @@ npm install --force      # first time only — see Troubleshooting #6
 npm run dev              # opens http://localhost:3001
 ```
 
-Three starter dashboards are pre-wired against the marts:
-- `/` — Overview (race count, driver count, top 5 standings)
-- `/drivers` — Full championship standings + charts
-- `/countries` — Geography + map of host countries
+Pages are namespaced by dataset. A top-level hub links to each dataset; F1's dashboards are pre-wired against its marts:
+- `/` — Hub (links to each dataset)
+- `/f1` — F1 overview (race count, driver count, top 5 standings)
+- `/f1/drivers` — Full championship standings + charts
+- `/f1/countries` — Geography + map of host countries
 
-Edit any `.md` file in `evidence/pages/` and the dev server hot-reloads. Add a new file → it auto-appears as a new route.
+Edit any `.md` file in `evidence/pages/` and the dev server hot-reloads. Add a new file → it auto-appears as a new route (a new dataset gets its own `pages/<dataset>/` folder).
 
 ---
 
@@ -280,17 +305,17 @@ These cost real debugging time during the build-out. If you see one of these err
 
 If the persistent file ever gets out of sync: `rm data/lakehouse.duckdb` and re-materialize all. The Parquet/Delta data files on disk are the durable lakehouse state — the `.duckdb` file is just dbt's engine state.
 
-### 3. `Invalid table location: ../data/raw/raw_races`
+### 3. `Invalid table location: ../data/raw/f1/raw_races`
 
-**Cause:** `PolarsDeltaIOManager` appends `.delta` to the asset name when writing. Actual path is `data/raw/raw_races.delta/`, not `data/raw/raw_races/`. Any dbt source's `delta_table_path` config must include the suffix.
+**Cause:** `PolarsDeltaIOManager` writes to `base_dir / *asset_key.path`, and appends `.delta`. With the dataset key prefix, asset `["f1","raw_races"]` lands at `data/raw/f1/raw_races.delta/` — not `data/raw/f1/raw_races/`. Any dbt source's `delta_table_path` must include both the `f1/` namespace and the `.delta` suffix.
 
-**Fix:** Check `dbt_project/models/staging/sources.yml` — all `delta_table_path` entries should end in `.delta`.
+**Fix:** Check `dbt_project/models/f1/staging/sources.yml` — all `delta_table_path` entries should point at `.../raw/f1/<name>.delta`.
 
 ### 4. `httpx.ReadTimeout` from Jolpica
 
 **Cause:** Jolpica's free tier occasionally stalls on heavy endpoints (especially `/results.json` with nested data).
 
-**Fix:** `pipelines/assets/raw.py` has retry logic with exponential backoff. If you see this and the retries don't help, just try again later — usually a transient blip.
+**Fix:** `RestApiExtractor` in `pipelines/stack/extractors.py` has retry logic with exponential backoff. If you see this and the retries don't help, just try again later — usually a transient blip.
 
 ### 5. dbt run fails with "No dbt_project.yml found"
 

@@ -8,7 +8,9 @@ The README is the "how do I run it" doc. This is the "what is going on and how d
 
 ## Part 1 — The 60-second elevator pitch
 
-You built a **single-node Data Lakehouse** on your laptop. It pulls F1 racing data from a public API, lands it as transactional **Delta** files (bronze), cleans and transforms it through **dbt** into **Parquet** files (silver + gold), runs the whole thing as a unified DAG in **Dagster**, and visualizes the gold layer as **Evidence** dashboards.
+You built a **single-node Data Lakehouse stack** on your laptop. A source lands as transactional **Delta** files (bronze), gets cleaned and transformed through **dbt** into **Parquet** files (silver + gold), runs the whole way as a unified DAG in **Dagster**, and surfaces as **Evidence** dashboards.
+
+The key idea: **the stack is the product, the data is the payload.** The machinery is dataset-agnostic — you plug in a dataset (its source + its KPIs) and the same bronze→silver→gold pipeline runs it. The dataset shipped here is **Formula 1** racing data (from a public API), and it's the running example throughout this doc — but nothing in the engine knows or cares that it's F1. (How that split works is **Step 8** below; adding a second dataset is the **homework** stretch goal.)
 
 No Spark. No cluster. No cloud. Everything runs on your Mac. Data lives as plain files you can open with any tool.
 
@@ -24,13 +26,13 @@ The order we built things wasn't accidental. Each step proved one architectural 
 We set up `uv` (Astral's Rust-based Python package manager) as the project's dependency tool, locked Python to **3.12**, and scaffolded a `Dockerfile` + `docker-compose.yml` for containerized runs. **Why first:** every step that follows depends on reproducible installs. With `uv.lock` committed, anyone on any platform gets the exact same dependency tree.
 
 ### Step 2: Extract layer (Polars + Dagster + Delta)
-We wrote Dagster `@asset` functions in `pipelines/assets/raw.py` that hit the **Jolpica API** (a free, community-maintained mirror of Ergast's defunct F1 API) and return **Polars DataFrames**. Dagster's `PolarsDeltaIOManager` writes those DataFrames as **Delta tables** in `data/raw/<asset>.delta/`. **Why this combo:** Delta gives us ACID transactional writes (no partial files on crash) and time travel. Polars + delta-rs is the only mainstream Python stack that writes Delta without needing Spark.
+We declared bronze sources as `SourceSpec`s in `pipelines/datasets/f1/sources.py` — each names an endpoint and (optionally) a reshaping function. The stack engine (`pipelines/stack/`) turns each spec into a Dagster `@asset` that hits the **Jolpica API** (a free, community-maintained mirror of Ergast's defunct F1 API) and returns a **Polars DataFrame**. Dagster's `PolarsDeltaIOManager` writes those DataFrames as **Delta tables** in `data/raw/<dataset>/<asset>.delta/`. **Why this combo:** Delta gives us ACID transactional writes (no partial files on crash) and time travel. Polars + delta-rs is the only mainstream Python stack that writes Delta without needing Spark. (The engine/dataset split is Step 8 below — when we first built this, all three assets were hand-written in one `raw.py` file.)
 
 ### Step 3: Transform layer (dbt + DuckDB + Parquet)
-We pointed `dbt-duckdb`'s **delta plugin** at the bronze tables (`models/staging/sources.yml`), then wrote staging models in SQL to clean them (`models/staging/stg_*.sql`). Staging output writes back as **Parquet** files via dbt's `external` materialization. Marts (`models/marts/mart_*.sql`) aggregate the staging files into business-facing answers. **Why Parquet here, not Delta:** the dbt-duckdb `delta` plugin only *reads* Delta well. Writing Delta from dbt requires custom Python plumbing. Parquet is the canonical dbt-duckdb output and is universally readable — small/medium production lakehouses mirror this hybrid pattern.
+We pointed `dbt-duckdb`'s **delta plugin** at the bronze tables (`models/f1/staging/sources.yml`), then wrote staging models in SQL to clean them (`models/f1/staging/stg_*.sql`). Staging output writes back as **Parquet** files via dbt's `external` materialization. Marts (`models/f1/marts/mart_*.sql`) aggregate the staging files into business-facing answers. **Why Parquet here, not Delta:** the dbt-duckdb `delta` plugin only *reads* Delta well. Writing Delta from dbt requires custom Python plumbing. Parquet is the canonical dbt-duckdb output and is universally readable — small/medium production lakehouses mirror this hybrid pattern.
 
 ### Step 4: Orchestration glue (dagster-dbt)
-We used `dagster-dbt`'s `@dbt_assets` decorator to make every dbt model show up as a Dagster asset. A custom `DagsterDbtTranslator` strips dbt's source-group prefix so dbt's `source('raw', 'raw_races')` resolves to the same Dagster `AssetKey` as the Polars-written asset — so the UI shows one connected graph, not two disconnected ones. **Why this matters:** without it you'd run Polars and dbt as separate processes and lose lineage. With it, Dagster's UI is the single pane of glass.
+We used `dagster-dbt`'s `@dbt_assets` decorator to make every dbt model show up as a Dagster asset. A custom `DagsterDbtTranslator` maps each dbt source onto the same Dagster `AssetKey` as the Polars-written bronze asset — the dbt source *group* is named after the dataset (`source('f1', 'raw_races')`), so it resolves to `["f1", "raw_races"]`, exactly the key the Polars asset uses. **Why this matters:** without it you'd run Polars and dbt as separate processes and lose lineage. With it, Dagster's UI is the single pane of glass — one connected graph, not two disconnected ones.
 
 ### Step 5: Containerization (Docker Compose)
 We built a single Docker image (using Astral's official `uv` base image) that contains Python 3.12, Polars, DuckDB, dbt, Dagster, and Evidence. Bind-mounts on `./data`, `./.dagster_home`, `./pipelines`, and `./dbt_project` keep state inspectable from the host and make code changes hot-reload without rebuilds. **Why:** packages the entire pipeline into one reproducible artifact. `docker compose up` and someone on a different OS gets the same thing you have.
@@ -40,6 +42,14 @@ We added a code-first BI tool — Evidence — that reads from `data/lakehouse.d
 
 ### Step 7: Documentation + gotchas
 We documented every non-obvious config decision in CLAUDE.md's **Implementation Notes** section. These are things that cost real debugging time — `threads: 1` for the dbt-duckdb delta plugin, persistent DuckDB file, `shm_size: 2gb` for Docker, `access_mode: READ_ONLY` for Evidence's connection. The README's **Troubleshooting** section maps every error message you might see to its fix.
+
+### Step 8: Made it a framework (stack vs dataset)
+The first seven steps produced a pipeline hard-wired to F1. But the *machine* (extract → bronze → silver → gold → dashboards) has nothing to do with F1 — only the *data* does. So we split the code in two:
+
+- **The stack** (`pipelines/stack/`) — the reusable engine. It knows how to extract records, build bronze assets, and wire dbt in. It contains zero F1 knowledge.
+- **The dataset** (`pipelines/datasets/f1/`) — the F1 payload: which endpoints to hit, how to reshape results, plus its dbt models (`dbt_project/models/f1/`) and Evidence pages (`evidence/pages/f1/`).
+
+The contract between them is `SourceSpec(name, extractor, shape=None)`: a dataset hands the engine a list of these, and `build_raw_assets()` turns each into a namespaced bronze asset. The design rule is **config for shape, a named Python function (`shape`) as the escape hatch for logic** — so we never grow a half-baked transformation DSL in YAML. **Why this matters:** adding a second dataset (say NYC taxi data) becomes *additive* — a new `datasets/<name>/` folder and a new `models/<name>/` folder — with the engine untouched. The everything-is-namespaced-by-dataset layout (`data/raw/<dataset>/...`) is what makes datasets coexist without colliding. See CLAUDE.md's **Stack vs Dataset** section for the full how-to.
 
 ---
 
@@ -169,7 +179,7 @@ For every tool, I'll tell you: what it actually does, why we chose it over alter
    │  └────────┬───────┘    └────────┬───────┘    └────────┬────────┘  │
    └───────────┼─────────────────────┼─────────────────────┼───────────┘
                ▼                     ▼                     ▼
-       data/raw/*.delta/      data/staging/*.parquet  data/marts/*.parquet
+     data/raw/f1/*.delta/    data/staging/f1/*.parquet data/marts/f1/*.parquet
         ┌─────────┐           ┌─────────┐             ┌─────────┐
         │  Delta  │           │ Parquet │             │ Parquet │
         └─────────┘           └─────────┘             └────┬────┘
@@ -197,18 +207,25 @@ The two things that aren't shown but matter:
 
 These are the day-to-day moves once the pipeline is set up.
 
-### Add a new dbt model
-1. Create `dbt_project/models/<staging|marts>/<name>.sql`.
-2. Top of file: `{{ config(location = env_var('LAKEHOUSE_DATA_ROOT', '../data') ~ '/<layer>/' ~ this.name ~ '.parquet') }}`
-3. Write your `SELECT`. Reference upstream models with `{{ ref('stg_xxx') }}` and sources with `{{ source('raw', 'raw_xxx') }}`.
-4. Add an entry to `models/<layer>/schema.yml` for docs + tests (optional but recommended).
+### Add a new dbt model (within an existing dataset, e.g. f1)
+1. Create `dbt_project/models/f1/<staging|marts>/<name>.sql`.
+2. Top of file: `{{ config(location = dataset_location('staging')) }}` (or `'marts'`). The `dataset_location` macro (`dbt_project/macros/dataset_location.sql`) derives the dataset from the model's folder and builds `data/<layer>/<dataset>/<name>.parquet` — so you never hardcode the dataset path. (Don't call it `external_location` — that name is taken by dbt-duckdb; see CLAUDE.md Note #12.)
+3. Write your `SELECT`. Reference upstream models with `{{ ref('stg_xxx') }}` and sources with `{{ source('f1', 'raw_xxx') }}` (the source group is the dataset name).
+4. Add an entry to `models/f1/<layer>/schema.yml` for docs + tests (optional but recommended).
 5. Reload Dagster's workspace (UI → top-right → Reload), then materialize.
 
-### Add a new raw asset (new data source)
-1. Add a new `@asset` function in `pipelines/assets/raw.py`. Use `_fetch_paginated` for HTTP work.
-2. Register it in `pipelines/definitions.py`'s `assets=[...]` list.
-3. Declare it as a dbt source in `dbt_project/models/staging/sources.yml` (with `plugin: delta` + `delta_table_path`).
-4. Materialize it once in Dagster.
+### Add a new raw asset (within an existing dataset)
+You don't write a `@asset` function anymore — you declare a `SourceSpec` and the stack engine builds the asset.
+1. Append a `SourceSpec(name=..., extractor=RestApiExtractor(url, container_path=[...]))` to `SOURCES` in `pipelines/datasets/f1/sources.py`. Add a `shape=` function only if the records need reshaping the SQL can't do.
+2. Declare it as a dbt source in `dbt_project/models/f1/staging/sources.yml` (under the `f1` source group, with `plugin: delta` + a `delta_table_path` pointing at `.../raw/f1/<name>.delta`).
+3. Reload Dagster's workspace and materialize it once.
+
+### Add a whole new dataset (e.g. nyc_taxi)
+This is the framework payoff — the stack engine is untouched.
+1. `pipelines/datasets/<name>/sources.py` with `DATASET = "<name>"` and a `SOURCES` list. (For files instead of an API you'd add a `FileExtractor` in `pipelines/stack/extractors.py` — it just has to satisfy the `Extractor` protocol.)
+2. Add the module to the `DATASETS` list in `pipelines/definitions.py`.
+3. `dbt_project/models/<name>/{staging,marts}/` with a `sources.yml` whose source group is named `<name>`; add a `models/<name>/` block in `dbt_project.yml`.
+4. `evidence/pages/<name>/` + a link on the Evidence hub (`evidence/pages/index.md`).
 
 ### Add an Evidence dashboard
 1. Create `evidence/sources/lakehouse/<query_name>.sql` — typically `SELECT * FROM <dbt_model_name>`.
@@ -235,11 +252,11 @@ A new mart `mart_constructor_standings` that has one row per constructor with: t
 
 | File to create or edit | What goes in it | Pattern to copy from |
 |---|---|---|
-| `dbt_project/models/marts/mart_constructor_standings.sql` | The mart SQL — GROUP BY `constructor_id` and aggregate points/wins/DNFs across the season | `mart_driver_standings.sql` |
-| `dbt_project/models/marts/schema.yml` | Add a `mart_constructor_standings` entry with column docs + a `unique` test on `constructor_id` | Existing entries in this file |
+| `dbt_project/models/f1/marts/mart_constructor_standings.sql` | The mart SQL — GROUP BY `constructor_id` and aggregate points/wins/DNFs across the season (set location via `{{ config(location = dataset_location('marts')) }}`) | `mart_driver_standings.sql` |
+| `dbt_project/models/f1/marts/schema.yml` | Add a `mart_constructor_standings` entry with column docs + a `unique` test on `constructor_id` | Existing entries in this file |
 | `evidence/sources/lakehouse/mart_constructor_standings.sql` | `SELECT * FROM mart_constructor_standings` | `mart_driver_standings.sql` in the same folder |
-| `evidence/pages/constructors.md` | A new dashboard page — DataTable + BarChart of points by team | `drivers.md` |
-| `evidence/pages/index.md` | Add a link to `/constructors` in the "Navigate" section | Existing nav links |
+| `evidence/pages/f1/constructors.md` | A new dashboard page — DataTable + BarChart of points by team | `evidence/pages/f1/drivers.md` |
+| `evidence/pages/f1/index.md` | Add a link to `/f1/constructors` in the "Navigate" section | Existing nav links |
 
 ### Steps in order
 
@@ -256,16 +273,20 @@ A new mart `mart_constructor_standings` that has one row per constructor with: t
 
 ### How to know you succeeded
 
-- `dbt build` runs without errors and writes `data/marts/mart_constructor_standings.parquet`
+- `dbt build` runs without errors and writes `data/marts/f1/mart_constructor_standings.parquet`
 - The new asset shows up in the Dagster UI (after a workspace reload)
 - The new dashboard page renders with real data (not "no data" or an error)
 - The mart's row count equals the unique constructor count for the season (should be 10 in 2024)
 
 ### Stretch goal (if you want more)
 
-Add a new **raw asset** end-to-end. Suggested: `raw_constructors` from `https://api.jolpi.ca/ergast/f1/2024/constructors.json` — fetches constructor metadata (name, nationality, base location). Then a `stg_constructors` staging model that flattens and cleans it. Then JOIN it into your new `mart_constructor_standings` to enrich the team data (e.g., add team nationality, factory location).
+Add a new **raw asset** end-to-end — and notice you write *zero* extract code. Append a `SourceSpec(name="raw_constructors", extractor=RestApiExtractor("https://api.jolpi.ca/ergast/f1/2024/constructors.json", container_path=["ConstructorTable", "Constructors"]))` to `SOURCES` in `pipelines/datasets/f1/sources.py`, declare it in `sources.yml`, and the stack engine builds the bronze asset for you. Then a `stg_constructors` staging model that flattens and cleans it. Then JOIN it into your new `mart_constructor_standings` to enrich the team data (e.g., add team nationality, factory location).
 
-That stretch exercise walks you through **every** layer once more, on your own — extract, stage, mart, visualize.
+That stretch exercise walks you through **every** layer once more, on your own — extract (via a SourceSpec), stage, mart, visualize.
+
+### Bigger stretch (the framework muscle)
+
+Add a **whole new dataset** following the "Add a whole new dataset" cheatsheet in Part 5 — NYC TLC taxi trip data is the canonical choice (it's distributed as Parquet files, which forces you to write a `FileExtractor` satisfying the `Extractor` protocol). If F1 and a file-based dataset both land in identical Delta bronze through totally different front-ends, you've proven the stack/dataset split is real — and you've learned the most transferable thing in this repo.
 
 ### When you get stuck
 
