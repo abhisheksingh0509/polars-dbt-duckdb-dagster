@@ -38,8 +38,8 @@ class Extractor(Protocol):
 
 DEFAULT_TIMEOUT = 60.0   # some APIs are slow assembling nested responses
 DEFAULT_PAGE_SIZE = 30   # smaller pages = faster server-side assembly = fewer timeouts
-DEFAULT_PAUSE = 0.25     # ~4 req/s between pages
-DEFAULT_MAX_RETRIES = 3  # retry on transient timeouts
+DEFAULT_PAUSE = 1.0      # 1 req/s — Jolpica's free tier rate-limits hard at ~4 req/s burst
+DEFAULT_MAX_RETRIES = 5  # retry on transient timeouts and 429s
 DEFAULT_BACKOFF = 2.0    # seconds; multiplied by attempt number
 
 
@@ -81,13 +81,25 @@ class RestApiExtractor:
     def _get_with_retry(
         self, url: str, context: AssetExecutionContext
     ) -> httpx.Response:
-        """GET with retry on read/connect timeouts (free-tier APIs occasionally stall)."""
+        """GET with retry on timeouts and 429 rate-limit responses."""
         last_exc: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
                 response = httpx.get(url, timeout=self.timeout)
                 response.raise_for_status()
                 return response
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 429 or attempt == self.max_retries:
+                    raise
+                # Respect Retry-After if the server sends it, else exponential backoff
+                retry_after = exc.response.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after else self.backoff * (2 ** (attempt - 1))
+                context.log.warning(
+                    f"429 rate-limited on {url} (attempt {attempt}/{self.max_retries}), "
+                    f"waiting {wait}s"
+                )
+                last_exc = exc
+                time.sleep(wait)
             except (httpx.ReadTimeout, httpx.ConnectTimeout) as exc:
                 last_exc = exc
                 if attempt < self.max_retries:
@@ -119,7 +131,7 @@ class RestApiExtractor:
             items.extend(container)
 
             total = int(payload[self.total_key])
-            offset += len(container)
+            offset += self.page_size
             if offset >= total:
                 break
             time.sleep(self.pause)

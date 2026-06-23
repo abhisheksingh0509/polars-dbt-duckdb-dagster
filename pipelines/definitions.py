@@ -80,6 +80,7 @@ defs = Definitions(
         # so key ["f1","raw_races"] → data/raw/f1/raw_races.delta/
         "delta_io_manager": PolarsDeltaIOManager(
             base_dir=str(DATA_ROOT / "raw"),
+            mode="overwrite",
         ),
         # Lets Dagster invoke dbt CLI for materialization + tests. profiles_dir points at
         # the project dir so dbt finds profiles.yml alongside dbt_project.yml.
