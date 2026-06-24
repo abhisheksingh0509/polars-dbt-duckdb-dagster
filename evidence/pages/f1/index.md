@@ -1,17 +1,22 @@
 ---
-title: F1 2024 Lakehouse
+title: F1 Lakehouse
 ---
 
 A code-first BI tour of the local lakehouse. Data flows: **Jolpica API → Polars / Delta (bronze) → dbt + DuckDB (silver, gold) → here**.
 
-## At a glance
+<Dropdown name=season title="Season" defaultValue=2024>
+  <DropdownOption value=2024 />
+  <DropdownOption value=2023 />
+</Dropdown>
+
+## {inputs.season.value} at a glance
 
 ```sql totals
 SELECT
-  (SELECT COUNT(*) FROM lakehouse.mart_country_race_summary) AS countries,
-  (SELECT SUM(race_count) FROM lakehouse.mart_country_race_summary) AS races,
-  (SELECT COUNT(*) FROM lakehouse.mart_driver_standings) AS drivers,
-  (SELECT SUM(points) FROM lakehouse.mart_driver_standings) AS total_points
+  (SELECT COUNT(*) FROM lakehouse.mart_country_race_summary WHERE season = ${inputs.season.value}) AS countries,
+  (SELECT SUM(race_count) FROM lakehouse.mart_country_race_summary WHERE season = ${inputs.season.value}) AS races,
+  (SELECT COUNT(*) FROM lakehouse.mart_driver_standings WHERE season = ${inputs.season.value}) AS drivers,
+  (SELECT SUM(total_points) FROM lakehouse.mart_driver_standings WHERE season = ${inputs.season.value}) AS total_points
 ```
 
 <BigValue data={totals} value=countries title="Countries visited" />
@@ -30,6 +35,7 @@ SELECT
   wins,
   podiums
 FROM lakehouse.mart_driver_standings
+WHERE season = ${inputs.season.value}
 ORDER BY total_points DESC
 LIMIT 5
 ```
@@ -39,4 +45,7 @@ LIMIT 5
 ## Navigate
 
 - [**Driver standings**](/f1/drivers) — full table, points distribution, wins vs podiums
-- [**Geography**](/f1/countries) — where F1 raced in 2024
+- [**Constructor standings**](/f1/constructors) — team championship
+- [**Geography**](/f1/countries) — where F1 raced each season
+
+_The season selector above applies to this page. Each linked page has its own selector._

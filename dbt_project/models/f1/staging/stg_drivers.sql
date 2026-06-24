@@ -7,10 +7,14 @@
 --   2. Cast date_of_birth string → DATE
 --   3. Cast permanent_number (sometimes empty) → nullable INTEGER
 --   4. Add a convenience full_name column
+--   5. Carry season (the Delta partition column) so downstream marts can group by it.
+--      Drivers are ingested per season, so a driver who raced both years has one row
+--      per season here — join on (driver_id, season) downstream to avoid fan-out.
 
 {{ config(location = dataset_location('staging')) }}
 
 SELECT
+    CAST(season AS INTEGER)                          AS season,
     "driverId"                                       AS driver_id,
     TRY_CAST(NULLIF("permanentNumber", '') AS INTEGER) AS permanent_number,
     code                                             AS driver_code,

@@ -8,18 +8,25 @@ version: 2
 models:
   - name: mart_country_race_summary
     description: |
-      F1 races aggregated by country. Grain: one row per country across all seasons
-      loaded into the lakehouse.
+      F1 races aggregated by country and season. Grain: one row per (country, season).
 
       Use for: geographic analysis, sponsorship targeting, calendar planning.
     columns:
+      - name: country_season_key
+        description: "Surrogate key for the (country, season) grain (season || '-' || country)."
+        tests:
+          - unique     # one row per (country, season)
+          - not_null
+      - name: season
+        description: "Championship season (year) these races belong to."
+        tests:
+          - not_null
       - name: country
         description: "Country hosting the race(s)."
         tests:
-          - unique     # one row per country = country must be unique
           - not_null
       - name: race_count
-        description: "Number of races held in this country across all seasons."
+        description: "Number of races held in this country in this season."
         tests:
           - not_null
       - name: circuits
@@ -38,12 +45,20 @@ models:
       Championship-style summary per driver: total points, wins, podiums, DNFs,
       pole positions, and average finishing position.
 
-      Grain: one row per driver.
+      Grain: one row per (driver, season).
     columns:
+      - name: driver_season_key
+        description: "Surrogate key for the (driver, season) grain (season || '-' || driver_id)."
+        tests:
+          - unique
+          - not_null
+      - name: season
+        description: "Championship season (year) of these standings."
+        tests:
+          - not_null
       - name: driver_id
         description: "Stable driver identifier from Ergast/Jolpica (e.g. 'max_verstappen')."
         tests:
-          - unique
           - not_null
       - name: driver_name
         description: "Driver's full name (givenName + familyName)."
@@ -54,11 +69,15 @@ models:
       - name: primary_constructor
         description: "The team the driver raced for most often this season."
       - name: total_points
-        description: "Sum of championship points across all races."
+        description: "Championship points for the season = Grand Prix points + sprint points."
         tests:
           - not_null
+      - name: race_points
+        description: "Points from Grand Prix results only (excludes sprints)."
+      - name: sprint_points
+        description: "Points from sprint results only (0 if the driver scored none)."
       - name: races_entered
-        description: "Number of races the driver appeared in (any finishing status)."
+        description: "Number of Grand Prix the driver appeared in (any finishing status)."
       - name: wins
         description: "Number of P1 finishes."
       - name: podiums
@@ -76,14 +95,29 @@ models:
       Championship-style summary per constructor: total points, wins, podiums, DNFs,
       pole positions, and average finishing position.
 
-      Grain: one row per constructor.
+      Grain: one row per (constructor, season).
     columns:
+      - name: constructor_season_key
+        description: "Surrogate key for the (constructor, season) grain (season || '-' || constructor_name)."
+        tests:
+          - unique
+          - not_null
+      - name: season
+        description: "Championship season (year) of these standings."
+        tests:
+          - not_null
       - name: constructor_name
         description: "Name of the constructor."
+        tests:
+          - not_null
       - name: total_points
-        description: "Sum of championship points across all races."
+        description: "Championship points for the season = Grand Prix points + sprint points."
+      - name: race_points
+        description: "Points from Grand Prix results only (excludes sprints)."
+      - name: sprint_points
+        description: "Points from sprint results only (0 if the constructor scored none)."
       - name: races_entered
-        description: "Number of races the constructor appeared in (any finishing status)."
+        description: "Number of Grand Prix the constructor appeared in (any finishing status)."
       - name: wins
         description: "Number of P1 finishes."
       - name: podiums

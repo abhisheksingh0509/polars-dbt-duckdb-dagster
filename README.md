@@ -65,7 +65,7 @@ Everything on disk is namespaced by dataset (`data/raw/<dataset>/`, `data/stagin
 
 | Dataset | Source | What it answers |
 |---|---|---|
-| **`f1`** | Jolpica F1 API (public REST, 2024 season) | Driver championship standings + race geography |
+| **`f1`** | Jolpica F1 API (public REST, 2023–2024 seasons) | Driver championship standings + race geography, selectable by season |
 
 `f1` is the only dataset shipped today, and it doubles as the **worked example** throughout the rest of this README. **Adding a dataset is additive — the engine is untouched:** declare a `SourceSpec`, add `models/<name>/`, add `pages/<name>/`. The step-by-step (including the file-vs-API extractor choice) is in the **"Stack vs Dataset"** section of [CLAUDE.md](CLAUDE.md), and the homework in [LEARN.md](LEARN.md) walks you through it.
 
@@ -86,7 +86,7 @@ This is a standard lakehouse pattern. Each layer has a clear purpose:
 - **Format:** Parquet, one file per model, namespaced by dataset.
 - **Writer:** dbt models using dbt-duckdb's `external` materialization.
 - **Why Parquet here:** This is the canonical dbt-duckdb path. Writing Delta from dbt requires custom Python plumbing for limited gain. Plain Parquet is universally readable and works perfectly at this volume.
-- **Why no partitioning yet:** We only have one season — Hive partitioning would be premature. When we add multiple seasons, we'd switch to `data/staging/f1/stg_races/season=YYYY/` layout.
+- **Bronze is partitioned by season:** the raw Delta tables (`data/raw/f1/*.delta/`) carry a `season` partition, written one Dagster partition at a time. Silver/gold stay as single Parquet files for now but carry a `season` column so the marts are grained per season; Hive-partitioned silver/gold (`stg_races/season=YYYY/`) is still a future step.
 
 ### Gold: `data/marts/<dataset>/` (single Parquet files)
 - **What:** Business-facing answers. Wide tables ready for BI / analysis.
@@ -188,17 +188,18 @@ open http://localhost:3000
 ### Running the pipeline
 
 In the Dagster UI:
-1. **First time only — click "Materialize all"** at the top. This is mandatory the first time so dbt creates all of its view definitions in `data/lakehouse.duckdb` (see Troubleshooting #2).
-2. After that, materialize any subset you like — Dagster figures out the dbt selector.
+1. **Bronze is partitioned by season.** Open a `f1/raw_*` asset and **Materialize** with the partitions you want (select `2023` + `2024`, or launch a backfill of both). Each season writes its own slice of the Delta table; re-running one season replaces only that season.
+2. **First time only — then click "Materialize all"** (or materialize the dbt assets) so dbt creates all of its view definitions in `data/lakehouse.duckdb` (see Troubleshooting #2). The marts read every season from bronze and rebuild grained per season.
+3. After that, materialize any subset you like — Dagster figures out the dbt selector.
 
 From the command line:
 
 ```bash
-# Run one Polars asset (bronze assets are namespaced as <dataset>/<table>)
-uv run dagster asset materialize -m pipelines.definitions --select "f1/raw_races"
+# Run one Polars asset for a season (bronze is partitioned — pass --partition)
+uv run dagster asset materialize -m pipelines.definitions --select "f1/raw_races" --partition 2024
 
-# ...or a whole dataset's bronze layer at once
-uv run dagster asset materialize -m pipelines.definitions --select "group:f1_raw"
+# ...or a whole dataset's bronze layer at once (for one season)
+uv run dagster asset materialize -m pipelines.definitions --select "group:f1_raw" --partition 2023
 
 # Run a full dbt build (uses the persistent DuckDB file)
 cd dbt_project && uv run dbt build --profiles-dir .

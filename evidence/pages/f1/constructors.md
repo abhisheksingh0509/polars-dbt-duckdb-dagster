@@ -2,13 +2,19 @@
 title: Constructors Standings
 ---
 
-# 2024 Constructors Championship
+<Dropdown name=season title="Season" defaultValue=2024>
+  <DropdownOption value=2024 />
+  <DropdownOption value=2023 />
+</Dropdown>
+
+# {inputs.season.value} Constructors Championship
 
 ```sql standings
 SELECT
   constructor_name,
   races_entered,
   total_points,
+  sprint_points,
   wins,
   podiums,
   points_finishes,
@@ -16,6 +22,7 @@ SELECT
   dnfs,
   ROUND(avg_finishing_position, 1) AS avg_finish
 FROM lakehouse.mart_constructor_standings
+WHERE season = ${inputs.season.value}
 ORDER BY total_points DESC
 ```
 
@@ -24,6 +31,7 @@ ORDER BY total_points DESC
 <DataTable data={standings} rows=25>
   <Column id=constructor_name title="Constructor" />
   <Column id=total_points title="Points" />
+  <Column id=sprint_points title="Sprint pts" />
   <Column id=wins title="Wins" />
   <Column id=podiums title="Podiums" />
   <Column id=dnfs title="DNFs" />

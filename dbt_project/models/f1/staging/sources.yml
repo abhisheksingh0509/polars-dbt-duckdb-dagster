@@ -37,3 +37,9 @@ sources:
         meta:
           plugin: delta
           delta_table_path: "{{ env_var('LAKEHOUSE_DATA_ROOT', '../data') }}/raw/f1/raw_results.delta"
+
+      - name: raw_sprint_results
+        description: "Sprint results — one row per (sprint, driver), ~6 sprint weekends/season. Source: datasets/f1/sources.py::raw_sprint_results."
+        meta:
+          plugin: delta
+          delta_table_path: "{{ env_var('LAKEHOUSE_DATA_ROOT', '../data') }}/raw/f1/raw_sprint_results.delta"

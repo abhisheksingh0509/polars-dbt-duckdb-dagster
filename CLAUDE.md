@@ -22,7 +22,14 @@ Do **NOT** use Apache Spark for this project. The entire architecture is designe
 ## Initial Dataset
 **Formula 1** via the **Jolpica API** at `https://api.jolpi.ca/ergast/f1` — a community-maintained drop-in mirror of the now-deprecated Ergast API. Same URL paths, same JSON shape, so any Ergast docs still apply.
 
-Currently ingesting one season (2024): races, drivers, results. Lap-by-lap timings were de-scoped because per-race pagination overwhelmed Jolpica's free tier. They can be added later (see Implementation Notes #5 for the constraint).
+Ingesting seasons **2023 and 2024**: races, drivers, results, and sprint results (sprint
+points are folded into the championship totals). Each season is a Dagster
+**partition** (`StaticPartitionsDefinition`, defined as `SEASONS`/`PARTITIONS_DEF` in
+`pipelines/datasets/f1/sources.py`) — selectable/backfillable from the Dagster UI. Bronze
+Delta tables are partitioned by a `season` column, so re-materializing one season replaces
+only that season's slice. Add a year by appending it to `SEASONS` — no other code change.
+Lap-by-lap timings were de-scoped because per-race pagination overwhelmed Jolpica's free
+tier. They can be added later (see Implementation Notes #5 for the constraint).
 
 ## Pipeline Architecture & Data Flow
 
@@ -31,6 +38,7 @@ Currently ingesting one season (2024): races, drivers, results. Lap-by-lap timin
 * Polars handles all the DataFrame shaping — `pl.DataFrame(records)` keeps nested objects as struct columns; flattening happens in staging.
 * **Storage:** Write to Delta Lake in `data/raw/`. The `PolarsDeltaIOManager` resource handles all filesystem ops — `@asset` functions never touch the disk directly.
 * A pagination helper (`_fetch_paginated`) handles Jolpica's offset paging + retries on transient timeouts (Jolpica's free tier occasionally stalls on heavier endpoints).
+* **Partitioning by season:** bronze assets are partitioned (`StaticPartitionsDefinition`). The extractor's URL carries a `{partition}` placeholder that `RestApiExtractor.fetch` fills with `context.partition_key`; `build_raw_assets` stamps the `partition_column` (`season`) onto the DataFrame and sets `metadata={"partition_by": ...}`, which makes `PolarsDeltaIOManager` store every partition in one Delta table and overwrite only the current partition's rows (predicate-based). All generic — the stack knows "partition", the F1 dataset supplies "season".
 
 ### 2. Transform (dbt + DuckDB)
 * **Read** Delta tables from `data/raw/<dataset>/` via dbt-duckdb's `delta` plugin. Each Delta source is declared in `models/<dataset>/staging/sources.yml` (source group named after the dataset) with `plugin: delta` and a per-table `delta_table_path` (see Implementation Notes #4 and #5).
@@ -115,18 +123,21 @@ Evidence hub. The stack stays untouched.
 ## Current Asset Inventory
 
 Bronze asset keys are namespaced by dataset (`f1/raw_races`); dbt models keep their plain
-names but materialize under per-dataset paths.
+names but materialize under per-dataset paths. Bronze assets are **partitioned by season**
+(`2023`, `2024`); the marts now carry a `season` column and are grained per season.
 
 | Layer | Asset | Grain | Origin |
 |---|---|---|---|
-| Bronze | `f1/raw_races` | one row per race | Jolpica `/2024/races.json` |
-| Bronze | `f1/raw_drivers` | one row per driver | Jolpica `/2024/drivers.json` |
-| Bronze | `f1/raw_results` | one row per (race, driver) | Jolpica `/2024/results.json` |
+| Bronze | `f1/raw_races` | one row per race (partitioned by season) | Jolpica `/{season}/races.json` |
+| Bronze | `f1/raw_drivers` | one row per driver per season (partitioned by season) | Jolpica `/{season}/drivers.json` |
+| Bronze | `f1/raw_results` | one row per (race, driver) (partitioned by season) | Jolpica `/{season}/results.json` |
+| Bronze | `f1/raw_sprint_results` | one row per (sprint, driver) (partitioned by season) | Jolpica `/{season}/sprint.json` |
 | Silver | `stg_races` | one row per race (typed, flattened) | dbt: refs `f1/raw_races` |
-| Silver | `stg_drivers` | one row per driver | dbt: refs `f1/raw_drivers` |
+| Silver | `stg_drivers` | one row per driver per season | dbt: refs `f1/raw_drivers` |
 | Silver | `stg_results` | one row per (race, driver) | dbt: refs `f1/raw_results` |
-| Gold | `mart_country_race_summary` | one row per country | dbt: refs `stg_races` |
-| Gold | `mart_driver_standings` | one row per driver | dbt: refs `stg_drivers` + `stg_results` |
+| Silver | `stg_sprint_results` | one row per (sprint, driver) | dbt: refs `f1/raw_sprint_results` |
+| Gold | `mart_country_race_summary` | one row per (country, season) | dbt: refs `stg_races` |
+| Gold | `mart_driver_standings` | one row per (driver, season); total_points = GP + sprint | dbt: refs `stg_drivers` + `stg_results` + `stg_sprint_results` |
 
 ## Infrastructure & Packaging
 * The pipeline must be containerized using a single Docker image. (Dockerfile + docker-compose.yml exist but the build hasn't been validated end-to-end yet.)

@@ -32,9 +32,15 @@ class SourceSpec:
         shape: optional post-fetch transform, records -> records. The escape hatch for
             per-source logic. None = land the records as-is.
         group: Dagster asset group name. Defaults to "raw" (the bronze layer).
+        partition_column: when the dataset is partitioned (see build_raw_assets'
+            partitions_def), the Delta column to partition this source by. The engine
+            stamps it with the partition key at write time and hands it to the Delta IO
+            manager's `partition_by`, so each partition replaces only its own slice.
+            None = unpartitioned (the column is not added).
     """
 
     name: str
     extractor: Extractor
     shape: Callable[[list[dict]], list[dict]] | None = None
     group: str = "raw"
+    partition_column: str | None = None

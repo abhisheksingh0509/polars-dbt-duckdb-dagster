@@ -2,7 +2,12 @@
 title: Geography
 ---
 
-# Where F1 Raced in 2024
+<Dropdown name=season title="Season" defaultValue=2024>
+  <DropdownOption value=2024 />
+  <DropdownOption value=2023 />
+</Dropdown>
+
+# Where F1 Raced in {inputs.season.value}
 
 ```sql countries
 SELECT
@@ -14,6 +19,7 @@ SELECT
   centroid_lat AS latitude,
   centroid_long AS longitude
 FROM lakehouse.mart_country_race_summary
+WHERE season = ${inputs.season.value}
 ORDER BY race_count DESC, country
 ```
 
