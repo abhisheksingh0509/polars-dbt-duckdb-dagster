@@ -2,7 +2,12 @@
 title: Driver Standings
 ---
 
-# 2024 Driver Championship
+<Dropdown name=season title="Season" defaultValue=2024>
+  <DropdownOption value=2024 />
+  <DropdownOption value=2023 />
+</Dropdown>
+
+# {inputs.season.value} Driver Championship
 
 ```sql standings
 SELECT
@@ -11,6 +16,7 @@ SELECT
   primary_constructor AS team,
   nationality,
   total_points,
+  sprint_points,
   wins,
   podiums,
   points_finishes,
@@ -18,6 +24,7 @@ SELECT
   dnfs,
   ROUND(avg_finishing_position, 1) AS avg_finish
 FROM lakehouse.mart_driver_standings
+WHERE season = ${inputs.season.value}
 ORDER BY total_points DESC
 ```
 
@@ -29,6 +36,7 @@ ORDER BY total_points DESC
   <Column id=team title="Team" />
   <Column id=nationality title="Nationality" />
   <Column id=total_points title="Points" />
+  <Column id=sprint_points title="Sprint pts" />
   <Column id=wins title="Wins" />
   <Column id=podiums title="Podiums" />
   <Column id=dnfs title="DNFs" />

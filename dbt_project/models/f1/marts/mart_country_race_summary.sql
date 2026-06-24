@@ -6,12 +6,16 @@
 -- like geographically?" Useful for sponsorship targeting, regional content planning,
 -- understanding the sport's footprint.
 --
--- Grain change: stg_races has one row per race; this mart has one row per country —
--- that grain shift is what makes it a "mart" rather than another staging model.
+-- Grain change: stg_races has one row per race; this mart has one row per
+-- (country, season) — that grain shift is what makes it a "mart" rather than another
+-- staging model.
 
 {{ config(location = dataset_location('marts')) }}
 
 SELECT
+    -- Surrogate key for the (country, season) grain — schema.yml tests uniqueness here.
+    season || '-' || circuit_country         AS country_season_key,
+    season,
     circuit_country                          AS country,
     COUNT(*)                                 AS race_count,
     STRING_AGG(DISTINCT circuit_name, ', ')  AS circuits,
@@ -20,5 +24,5 @@ SELECT
     AVG(circuit_lat)                         AS centroid_lat,
     AVG(circuit_long)                        AS centroid_long
 FROM {{ ref('stg_races') }}
-GROUP BY circuit_country
-ORDER BY race_count DESC, country
+GROUP BY season, circuit_country
+ORDER BY season DESC, race_count DESC, country

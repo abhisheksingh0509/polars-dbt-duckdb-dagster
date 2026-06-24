@@ -47,7 +47,13 @@ for zone in ("raw", "staging", "marts"):
 # under data/raw/<dataset>/ automatically (see stack/raw_assets.py).
 raw_assets = []
 for dataset in DATASETS:
-    raw_assets += build_raw_assets(dataset.DATASET, dataset.SOURCES)
+    # PARTITIONS_DEF is optional per dataset — datasets that don't partition omit it and
+    # build_raw_assets falls back to unpartitioned assets.
+    raw_assets += build_raw_assets(
+        dataset.DATASET,
+        dataset.SOURCES,
+        partitions_def=getattr(dataset, "PARTITIONS_DEF", None),
+    )
 
 
 # ─── dbt integration ─────────────────────────────────────────────────────────
@@ -78,9 +84,15 @@ defs = Definitions(
         # IO manager every raw asset uses (io_manager_key="delta_io_manager").
         # base_dir stays data/raw; the asset key prefix [dataset] adds the namespace,
         # so key ["f1","raw_races"] → data/raw/f1/raw_races.delta/
+        # schema_mode="merge" lets the bronze Delta schema evolve across seasons: 2024
+        # races carry a SprintQualifying field 2023 lacks, so without merge the second
+        # season's write fails with a SchemaMismatchError. Merge unions the schemas
+        # (older rows get NULLs for new fields) and still honors the per-partition
+        # overwrite predicate, so re-running one season replaces only its slice.
         "delta_io_manager": PolarsDeltaIOManager(
             base_dir=str(DATA_ROOT / "raw"),
             mode="overwrite",
+            schema_mode="merge",
         ),
         # Lets Dagster invoke dbt CLI for materialization + tests. profiles_dir points at
         # the project dir so dbt finds profiles.yml alongside dbt_project.yml.

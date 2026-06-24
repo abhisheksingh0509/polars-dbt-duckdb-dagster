@@ -6,6 +6,6 @@ A code-first BI tour of the local lakehouse. The same stack — **source → Pol
 
 ## Datasets
 
-- [**Formula 1 (2024)**](/f1) — races, drivers, championship standings, and geography
+- [**Formula 1 (2023–2024)**](/f1) — races, drivers, championship standings, and geography (pick a season on each page)
 
 _Adding a dataset adds a link here and a `pages/<dataset>/` folder — the stack underneath is unchanged._

@@ -113,11 +113,20 @@ class RestApiExtractor:
         raise last_exc
 
     def fetch(self, context: AssetExecutionContext) -> list[dict]:
+        # A `{partition}` placeholder in the URL is substituted with the Dagster
+        # partition key at fetch time (e.g. the season "2024"). Datasets that don't
+        # partition leave the placeholder out and the URL is used verbatim.
+        url = (
+            self.url.format(partition=context.partition_key)
+            if "{partition}" in self.url
+            else self.url
+        )
+
         items: list[dict] = []
         offset = 0
         while True:
             response = self._get_with_retry(
-                f"{self.url}?limit={self.page_size}&offset={offset}", context
+                f"{url}?limit={self.page_size}&offset={offset}", context
             )
             payload = response.json()[self.envelope_key]
 

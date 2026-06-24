@@ -123,7 +123,9 @@ For every tool, I'll tell you: what it actually does, why we chose it over alter
 
 **Why it's here:** Single pane of glass for the entire pipeline. Polars assets + dbt models are all just Dagster assets; the UI shows the unified DAG with materialization state per node.
 
-**Read first:** [Dagster Essentials tutorial](https://docs.dagster.io/getting-started) → [Software-Defined Assets concept](https://docs.dagster.io/concepts/assets/software-defined-assets) → [dagster-dbt integration](https://docs.dagster.io/integrations/dbt)
+**Read first:** [Dagster Essentials tutorial](https://docs.dagster.io/getting-started) → [Software-Defined Assets concept](https://docs.dagster.io/concepts/assets/software-defined-assets) → [Partitions](https://docs.dagster.io/concepts/partitions-schedules-sensors/partitioning-assets) → [dagster-dbt integration](https://docs.dagster.io/integrations/dbt)
+
+**Partitions (how we ingest a season at a time):** the bronze `f1/raw_*` assets are *partitioned* by season (`StaticPartitionsDefinition(["2023","2024"])`). In the UI you pick which season(s) to materialize, or launch a **backfill** of both. Each partition lands in the *same* Delta table under its own `season=...` slice — re-running 2023 doesn't touch 2024. The downstream dbt marts aren't partitioned; they read all seasons from bronze and add a `season` column so each mart row is one (entity, season). **Spark shortcut:** same idea as a partitioned Hive table you `INSERT OVERWRITE PARTITION` into — Dagster just makes the partition a first-class, backfillable thing in the UI.
 
 **Spark shortcut:** Dagster ↔ Airflow's modern successor. Same DAG idea, but inverted: the DAG is *of data*, not *of jobs*. A "stale" raw asset propagates staleness downstream automatically.
 
@@ -280,7 +282,7 @@ A new mart `mart_constructor_standings` that has one row per constructor with: t
 
 ### Stretch goal (if you want more)
 
-Add a new **raw asset** end-to-end — and notice you write *zero* extract code. Append a `SourceSpec(name="raw_constructors", extractor=RestApiExtractor("https://api.jolpi.ca/ergast/f1/2024/constructors.json", container_path=["ConstructorTable", "Constructors"]))` to `SOURCES` in `pipelines/datasets/f1/sources.py`, declare it in `sources.yml`, and the stack engine builds the bronze asset for you. Then a `stg_constructors` staging model that flattens and cleans it. Then JOIN it into your new `mart_constructor_standings` to enrich the team data (e.g., add team nationality, factory location).
+Add a new **raw asset** end-to-end — and notice you write *zero* extract code. Append a `SourceSpec(name="raw_constructors", extractor=RestApiExtractor("https://api.jolpi.ca/ergast/f1/{partition}/constructors.json", container_path=["ConstructorTable", "Constructors"]), partition_column="season")` to `SOURCES` in `pipelines/datasets/f1/sources.py` (the `{partition}` placeholder + `partition_column="season"` make it season-partitioned like the others), declare it in `sources.yml`, and the stack engine builds the bronze asset for you. Then a `stg_constructors` staging model that flattens and cleans it. Then JOIN it into your new `mart_constructor_standings` to enrich the team data (e.g., add team nationality, factory location).
 
 That stretch exercise walks you through **every** layer once more, on your own — extract (via a SourceSpec), stage, mart, visualize.
 
